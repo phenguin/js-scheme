@@ -67,20 +67,9 @@ function consumeNext (partial, rest) {
         return consumeSimple(partial,rest);
 
     function consumeSimple (consumed, remaining) { // Parse a single symbol
-        function tokenType (t) {
-            if ((t.head() == "'" && t.last() == "'") || (t.head() == '"' && t.last() == '"')) 
-                parsed = t.slice(1,-1);
-            else if (!isNaN(t)) 
-                parsed = Number(t);
-            else {
-                parsed = Object.create(tagged_data);
-                parsed.type = "symbol";
-                parsed.data = t;
-            }
-            return parsed;
-        }
+        
         var j = remaining.indexOf(" ");
-        var token, parsed;
+        var token;
         if (j == -1) {
             new_partial = consumed.concat(tokenType(remaining));
             new_rest = "";
@@ -121,16 +110,35 @@ function consumeNext (partial, rest) {
 
 }
 
+// What scheme type should a given constnat correspond to?
+function tokenType (t) {
+    var parsed;
+    if ((t.head() == "'" && t.last() == "'") || (t.head() == '"' && t.last() == '"')) 
+        parsed = t.slice(1,-1);
+    else if (!isNaN(t)) 
+        parsed = Number(t);
+    else {
+        parsed = Object.create(tagged_data);
+        parsed.type = "symbol";
+        parsed.data = t;
+    }
+    return parsed;
+}
+
 // Parses an S-expression string into a javascript array
 function tokenize (expr) {
+
     if (typeof expr !== "string") { // Only parse strings..
         throw { name:"TypeError",
             msg: "Can only tokenize strings"
         };
     }
-    // Remove surrounding parens
+    //
+    // Remove surrounding parens, if they exist
     if ((expr[0] == "(") && (expr.last() == ")"))
         expr = expr.slice(1,-1);
+    else
+        return tokenType(expr);
 
     var partial = [];
     var rest = expr;
@@ -158,8 +166,6 @@ var tagged_data = {
 
 function isTaggedList (expr, tag) {
     if (is_array(expr)) {
-        console.log("is array");
-        console.log(expr.head);
         var head = expr.head();
         return (head.type == 'symbol' && head.data == tag);
     }
@@ -171,7 +177,7 @@ function isSelfEvaluating(expr) {
 }
 
 function isVariable(expr) {
-    if (typeof expr == "object")
+    if (typeof expr == "object" && expr.hasOwnProperty('typeIs'))
         return expr.typeIs('symbol');
     else
         return false;
@@ -206,13 +212,17 @@ function isCond(expr) {
 }
 
 function isApplication(expr) {
-    // TODO
+    return is_array(expr);
 }
 
 // Eval-Apply Loop
 
 // Evaluates an s-expression thats been converted to an array
-function evaluate (expr, env) {
+function evaluate (raw_expr, env) {
+
+    var expr = tokenize(raw_expr);
+    env = env || {'a':5, 'b':6};
+
     if (isSelfEvaluating(expr)) {
         return expr;
     } else if (isVariable(expr)) {
@@ -255,7 +265,7 @@ function extendEnv (bindings, base) {
     var p;
     for (p in bindings) {
         if (bindings.hasOwnProperty(p))
-            new_env[p] = base[p];
+            new_env[p] = bindings[p];
     }
     return new_env;
 }
@@ -269,6 +279,24 @@ function lookupVarVal(varname, env) {
         };
     } else 
         return ans;
+}
+
+function defineVar (varname, val, env) {
+    // For now allows defining a variable twice
+    env[varname] = val;
+    return true;
+}
+
+function setVar (varname, val, env) {
+    if (typeof env[varname] == 'undefined') {
+        throw {
+            name : 'UndefinedError',
+            msg : "Var: " + varname + ", is not defined"
+        };
+    } else {
+        env[varname] = val;
+        return true;
+    }
 }
 
 // Breakdown
@@ -301,3 +329,21 @@ function lookupVarValue(expr, env) {
 var e = "(define (f a b c) (a (car b b c) (cdr 'horse' 'moose')) (car 1 2 352 'chicken'))";
 
 var a = tokenize(e);
+
+var base = {
+    'a' : 5,
+    'b' : 6
+};
+var bindings = {
+    'a' : 1,
+    'b' : 2,
+    'c' : 3
+};
+var bindings2 = {
+    'a' : 100,
+    'f' : 5,
+    'g' : 6
+};
+
+var env1 = extendEnv(bindings, base);
+var env2 = extendEnv(bindings2, env1);
